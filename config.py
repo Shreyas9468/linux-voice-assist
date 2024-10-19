@@ -1,5 +1,5 @@
 # Gemini API Key
-GEMINI_API_KEY = "AIzaSyBvVbc7VHY1TkPm2FWm20EQ51hbhNHcW84"
+GEMINI_API_KEY = "YOUR_API_KEY"
 
 # Vosk model path
 VOSK_MODEL_PATH = r"/home/sidd/dev/vosk-model-en-us-0.22-lgraph"
