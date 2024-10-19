@@ -1,0 +1,223 @@
+import sys
+import os
+import subprocess
+import logging
+import json
+import numpy as np
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QProgressBar
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+import speech_recognition as sr
+import google.generativeai as genai
+import sounddevice as sd
+from scipy.io import wavfile
+from scipy import signal
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Configure the Gemini API (you'll need to set up your API key)
+genai.configure(api_key="AIzaSyBvVbc7VHY1TkPm2FWm20EQ51hbhNHcW84")
+
+PROMPT_TEMPLATE = """
+You are given a task where you need to provide a Bash command that can be directly executed in a Bash script. The command should resolve the issue described below, and your response should follow these rules:
+1. Provide the commands in the form of bash script to solve the problem.
+2. Include a small description explaining what each command does.
+3. Return the result in JSON format so that it can be parsed easily.
+4. Each JSON object should have the following structure:
+   - "bash script": The actual Bash script to be executed.
+   - "description": Just small explanation of what the script does. Don't mention the word script itself in the description.
+
+Here is the issue you need to resolve: {query}
+Please return only the JSON object in your response.
+Don't include any additional text like ``` or comments in your response.
+Return in stringified JSON format only so that it can be converted using python json.loads().
+"""
+
+class VoiceAssistant(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Smart Voice Assistant")
+        self.setGeometry(100, 100, 800, 600)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        # Status label
+        self.status_label = QLabel("Idle")
+        layout.addWidget(self.status_label)
+
+        # Button to start listening
+        self.listen_button = QPushButton("Start Listening")
+        self.listen_button.clicked.connect(self.start_listening)
+        layout.addWidget(self.listen_button)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+
+        # Integrated terminal
+        self.terminal = QTextEdit()
+        self.terminal.setReadOnly(True)
+        layout.addWidget(self.terminal)
+
+        # Voice recognition thread
+        self.voice_thread = VoiceRecognitionThread()
+        self.voice_thread.status_update.connect(self.update_status)
+        self.voice_thread.command_received.connect(self.process_command)
+
+        # Timer for progress bar
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_progress)
+
+        logging.info("Voice Assistant initialized")
+
+    def start_listening(self):
+        logging.info("Starting listening")
+        self.progress_bar.setValue(0)
+        self.timer.start(40)  # Update every 40ms for smooth progress (4000ms / 100)
+        self.voice_thread.start()
+
+    def update_progress(self):
+        value = self.progress_bar.value() + 1
+        if value > 100:
+            self.timer.stop()
+            self.progress_bar.setValue(0)
+        else:
+            self.progress_bar.setValue(value)
+
+    def update_status(self, status):
+        logging.debug(f"Status updated: {status}")
+        self.status_label.setText(status)
+        self.terminal.append(f"Status: {status}\n")
+
+    def process_command(self, command):
+        logging.info(f"Processing command: {command}")
+        self.update_status("Processing")
+        
+        # Use Gemini API to convert command to bash script
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        prompt = PROMPT_TEMPLATE.format(query=command)
+        response = model.generate_content(prompt)
+        print("############################################")
+        print(response.text)
+        print("############################################")
+        try:
+            jsondata = json.loads(response.text)
+            bash_script = jsondata.get('bash script')
+            description = jsondata.get('description')
+            
+            logging.debug(f"Generated bash script: {bash_script}")
+            logging.debug(f"Description: {description}")
+            
+            # Write bash script to file
+            with open('script.sh', 'w') as f:
+                f.write(bash_script)
+            
+            # Make script executable and run it
+            os.system('chmod +x script.sh')
+            result = subprocess.run(['bash', 'script.sh'], capture_output=True, text=True)
+            
+            output = result.stdout if result.returncode == 0 else result.stderr
+            self.terminal.append(f"Command: {command}\nDescription: {description}\nOutput: {output}\n")
+            logging.info(f"Command executed. Output: {output}")
+        except json.JSONDecodeError:
+            error_message = "Error: Invalid JSON response from Gemini API"
+            self.terminal.append(error_message + "\n")
+            logging.error(error_message)
+        except Exception as e:
+            error_message = f"Error executing command: {str(e)}"
+            self.terminal.append(error_message + "\n")
+            logging.error(error_message)
+        
+        self.update_status("Idle")
+
+class VoiceRecognitionThread(QThread):
+    status_update = pyqtSignal(str)
+    command_received = pyqtSignal(str)
+
+    def run(self):
+        self.status_update.emit("Listening")
+        logging.info("Listening for audio input")
+
+        try:
+            # Record audio
+            duration = 4  # seconds
+            fs = 44100  # Sample rate
+            recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+            sd.wait()
+            recording = recording.flatten()
+
+            # Apply audio processing
+            processed_audio = self.process_audio(recording, fs)
+
+            # Save processed audio to WAV file
+            wavfile.write("processed_audio.wav", fs, processed_audio.astype(np.int16))
+
+            # Use multiple recognition engines
+            recognizers = [
+                (sr.Recognizer().recognize_google, "Google Speech Recognition"),
+                (sr.Recognizer().recognize_sphinx, "CMU Sphinx"),
+            ]
+
+            for recognizer_func, name in recognizers:
+                try:
+                    with sr.AudioFile("processed_audio.wav") as source:
+                        audio = sr.Recognizer().record(source)
+                    command = recognizer_func(audio)
+                    logging.info(f"Recognized command using {name}: {command}")
+                    self.command_received.emit(command)
+                    return
+                except sr.UnknownValueError:
+                    logging.warning(f"{name} could not understand audio")
+                except sr.RequestError as e:
+                    logging.error(f"Could not request results from {name}; {e}")
+                except Exception as e:
+                    logging.error(f"Error with {name}: {e}")
+
+            self.status_update.emit("Could not understand audio")
+            logging.error("All recognition engines failed")
+
+        except Exception as e:
+            error_message = f"Error in voice recognition: {str(e)}"
+            self.status_update.emit(error_message)
+            logging.error(error_message)
+
+    def process_audio(self, audio, fs):
+        # Noise reduction
+        noise_reduced = self.reduce_noise(audio)
+
+        # Normalization
+        normalized = self.normalize(noise_reduced)
+
+        # Apply bandpass filter
+        lowcut = 300
+        highcut = 3000
+        filtered = self.butter_bandpass_filter(normalized, lowcut, highcut, fs, order=6)
+
+        return filtered
+
+    def reduce_noise(self, audio):
+        # Simple noise reduction using spectral gating
+        noise_sample = audio[:int(len(audio) * 0.1)]  # Use first 10% as noise sample
+        noise_profile = np.mean(np.abs(noise_sample))
+        return np.where(np.abs(audio) < noise_profile * 2, 0, audio)
+
+    def normalize(self, audio):
+        return audio / np.max(np.abs(audio))
+
+    def butter_bandpass_filter(self, data, lowcut, highcut, fs, order=5):
+        nyq = 0.5 * fs
+        low = lowcut / nyq
+        high = highcut / nyq
+        b, a = signal.butter(order, [low, high], btype='band')
+        y = signal.lfilter(b, a, data)
+        return y
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    assistant = VoiceAssistant()
+    assistant.show()
+    sys.exit(app.exec_())
