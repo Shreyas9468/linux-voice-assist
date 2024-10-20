@@ -36,4 +36,6 @@ Raw Command Output:
 {output}
 
 Please provide a clear and concise answer to the user's query based on this output. Explain any technical terms if necessary, and provide any relevant advice or context.
+
+Dont include any additional text like ``` or * or  comments in your response as it is meant to converted to speech.
 """

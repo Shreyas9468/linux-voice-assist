@@ -9,9 +9,10 @@ import pyttsx3
 # from pydub import AudioSegment
 # from pydub.generators import Sine
 # import simpleaudio as sa
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QProgressBar
-from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QColor, QPalette, QTextCursor
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QProgressBar, QApplication
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtGui import QFont, QColor, QPalette, QTextCursor
+
 import google.generativeai as genai
 from voice_recognition_thread import VoiceRecognitionThread
 from config import GEMINI_API_KEY, PROMPT_TEMPLATE, OUTPUT_INTERPRETATION_PROMPT
@@ -39,38 +40,73 @@ class VoiceAssistant(QMainWindow):
         super().__init__()
         self.setWindowTitle("Smart Voice Assistant")
         self.setGeometry(100, 100, 800, 600)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2C3E50;
+            }
+            QLabel {
+                color: #ECF0F1;
+                font-size: 16px;
+            }
+            QPushButton {
+                background-color: #3498DB;
+                color: white;
+                border: none;
+                padding: 10px;
+                font-size: 16px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2980B9;
+            }
+            QProgressBar {
+                border: 2px solid #3498DB;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #3498DB;
+            }
+        """)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
 
-        # Status label
+        # Header
+        header_layout = QHBoxLayout()
         self.status_label = QLabel("Idle")
-        layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(self.status_label)
 
-        # Button to start listening
         self.listen_button = QPushButton("Start Listening")
         self.listen_button.clicked.connect(self.start_listening)
-        layout.addWidget(self.listen_button)
+        header_layout.addWidget(self.listen_button)
+
+        main_layout.addLayout(header_layout)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        layout.addWidget(self.progress_bar)
+        self.progress_bar.setTextVisible(False)
+        main_layout.addWidget(self.progress_bar)
 
-        # Enhanced terminal
+        # Terminal
         self.terminal = QTextEdit()
         self.terminal.setReadOnly(True)
         self.terminal.setStyleSheet("""
             QTextEdit {
-                background-color: #0C0C0C;
-                color: #FFFFFF;
-                font-family: 'Courier New', monospace;
-                font-size: 12px;
+                background-color: #000000; /* Black background */
+                color: #FFFFFF; /* White text */
+                border: none;
+                font-family: 'DejaVu Sans Mono', monospace; /* Standard Linux font */
+                font-size: 16px; /* Increased font size */
+                padding: 10px;
             }
+
         """)
-        layout.addWidget(self.terminal)
+        main_layout.addWidget(self.terminal)
 
         # Set up the terminal prompt
         self.terminal.append("$ ")
@@ -106,24 +142,29 @@ class VoiceAssistant(QMainWindow):
         logging.info("Voice Assistant initialized")
 
     def start_listening(self):
-        logging.info("Starting listening")
         self.progress_bar.setValue(0)
-        self.timer.start(40)  # Update every 40ms for smooth progress (4000ms / 100)
+        self.timer.start(40)
         self.voice_thread.start()
         self.terminal_print("Listening for command...")
+        self.listen_button.setEnabled(False)
+        self.listen_button.setText("Listening...")
+
 
     def update_progress(self):
         value = self.progress_bar.value() + 1
         if value > 100:
             self.timer.stop()
             self.progress_bar.setValue(0)
+            self.listen_button.setEnabled(True)
+            self.listen_button.setText("Start Listening")
         else:
             self.progress_bar.setValue(value)
 
+
     def update_status(self, status):
-        logging.debug(f"Status updated: {status}")
         self.status_label.setText(status)
         self.terminal_print(f"Status: {status}")
+
 
     def terminal_print(self, text):
         self.terminal.moveCursor(QTextCursor.End)
