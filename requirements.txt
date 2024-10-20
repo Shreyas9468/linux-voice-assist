@@ -5,4 +5,13 @@ pyaudio
 sounddevice
 scipy
 numpy
+setuptools
 vosk
+python-dotenv
+pyttsx3
+gTTS
+playsound
+pydub 
+simpleaudio
+# espeak
+# espeak-ng
