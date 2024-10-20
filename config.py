@@ -8,7 +8,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Vosk model path
-VOSK_MODEL_PATH = r"/home/sidd/dev/vosk-model-en-us-0.22-lgraph"
+VOSK_MODEL_PATH = os.getenv("VOSK_MODEL_PATH")
 
 # Prompt template for Gemini API
 PROMPT_TEMPLATE = """

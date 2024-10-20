@@ -132,7 +132,8 @@ class VoiceAssistant(QMainWindow):
             'tee', 'split', 'dmesg', 'iostat', 'vmstat', 'sar', 'lsof', 'who', 
             'last', 'mount', 'umount', 'blkid', 'fdisk', 'mkfs', 'ifconfig', 'netstat', 
             'ss', 'iptables', 'traceroute', 'nmap', 'which', 'locate', 'bc',
-            'alias', 'unalias', 'factor', 'yes', 'shutdown', 'reboot', 'kill', 'killall'
+            'alias', 'unalias', 'factor', 'yes', 'shutdown', 'reboot', 'kill', 'killall',
+            'history', 'clear', 'exit', 'logout', 'su', 'sudo', 'passwd', 'useradd',
         ])
         # self.tts_engine = pyttsx3.init()
         # for text-to-speech
