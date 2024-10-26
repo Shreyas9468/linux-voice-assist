@@ -9,9 +9,12 @@ setuptools
 vosk
 python-dotenv
 pyttsx3
-gTTS
-playsound
-pydub 
-simpleaudio
+# gTTS
+# playsound
+# pydub 
+# simpleaudio
+
+
+# following needs to be installed separately with apt
 # espeak
-# espeak-ng
+# portaudio19-dev
