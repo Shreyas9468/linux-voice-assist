@@ -183,7 +183,7 @@ class VoiceAssistant(QMainWindow):
             'last', 'mount', 'umount', 'blkid', 'fdisk', 'mkfs', 'ifconfig', 'netstat', 
             'ss', 'iptables', 'traceroute', 'nmap', 'which', 'locate', 'bc',
             'alias', 'unalias', 'factor', 'yes', 'shutdown', 'reboot', 'kill', 'killall',
-            'history', 'clear', 'exit', 'logout', 'su', 'sudo', 'passwd', 'useradd',
+            'history', 'ip', 'clear', 'exit', 'logout', 'su', 'sudo', 'passwd', 'useradd',
         ])
         # self.tts_engine = pyttsx3.init()
         # for text-to-speech
@@ -196,6 +196,8 @@ class VoiceAssistant(QMainWindow):
         self.progress_bar.setValue(0)
         self.timer.start(40)
         self.voice_thread.start()
+        self.current_status = self.STATUS_LISTENING
+        self.status_label.setText(self.current_status)
         self.terminal_print("Listening for command...")
         self.listen_button.setEnabled(False)
         self.listen_button.setText("Listening...")
@@ -284,9 +286,13 @@ class VoiceAssistant(QMainWindow):
     #     return response.text
 
     def speak_text(self, text):
+        self.current_status = self.STATUS_SPEAKING
+        self.status_label.setText(self.current_status)
         self.tts_thread = TTSThread(text)
         self.tts_thread.start()
         self.tts_thread.wait()  # Wait for the thread to finish
+        self.current_status = self.STATUS_IDLE
+        self.status_label.setText(self.current_status)
 
 
 
@@ -299,11 +305,16 @@ class VoiceAssistant(QMainWindow):
 
     def process_command(self, command):
         logging.info(f"Processing command: {command}")
-        self.update_status("Processing")
+        self.current_status = self.STATUS_PROCESSING
+        self.status_label.setText(self.current_status)
         self.terminal_print(f"Received command: {command}")
+
         
         try:
             # Get context from RAG model
+            self.current_status = self.STATUS_GENERATING
+            self.status_label.setText(self.current_status)
+
             context = self.rag.get_relevant_context(command)
             # self.terminal_print(f"Context: {context}")
             # Generate bash script using the LLM service
@@ -317,31 +328,42 @@ class VoiceAssistant(QMainWindow):
             
             # Validate the script
             if self.validate_script(bash_script):
-                self.terminal_print("Executing command in sandbox...")
-                
                 # Execute in sandbox
+                self.current_status = self.STATUS_EXECUTING
+                self.status_label.setText(self.current_status)
+                self.terminal_print("Executing command in sandbox...")
                 command_output = self.execute_in_sandbox(bash_script)
-                
                 self.terminal_print(f"Raw output: {command_output}")
                 
-                # Interpret the output using the LLM service
+                # Interpret output
+                self.current_status = self.STATUS_INTERPRETING
+                self.status_label.setText(self.current_status)
                 interpreted_response = self.llm.interpret_output(command, command_output)
-                
                 self.terminal_print(f"Interpreted response: {interpreted_response}")
-                logging.info(f"Command executed and interpreted. Response: {interpreted_response}")
-
-                # Speak the interpreted response
+                
+                # Speak response
+                self.current_status = self.STATUS_SPEAKING
+                self.status_label.setText(self.current_status)
                 self.speak_text(interpreted_response)
+                
             else:
+                self.current_status = self.STATUS_ERROR
+                self.status_label.setText(self.current_status)
                 error_message = "Script execution aborted due to security concerns."
                 self.terminal_print(error_message)
                 self.speak_text(error_message)
+
         except Exception as e:
+            self.current_status = self.STATUS_ERROR
+            self.status_label.setText(self.current_status)
             error_message = f"Error executing command: {str(e)}"
             self.terminal_print(error_message)
             self.speak_text(error_message)
             logging.error(error_message)
+
         
-        self.update_status("Idle")
+        self.current_status = self.STATUS_IDLE
+        self.status_label.setText(self.current_status)
+
 
 
