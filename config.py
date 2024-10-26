@@ -1,14 +1,22 @@
 from dotenv import load_dotenv
 import os
+import getpass
 # Load environment variables from .env file
 load_dotenv()
 
 
 # Gemini API Key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Groq API Key
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Vosk model path
 VOSK_MODEL_PATH = os.getenv("VOSK_MODEL_PATH")
+
+
+
 
 # Prompt template for Gemini API
 PROMPT_TEMPLATE = """
@@ -27,15 +35,17 @@ Return in stringified JSON format only so that it can be converted using python 
 """
 
 OUTPUT_INTERPRETATION_PROMPT = """
-You are a virtual assistant tasked with anwering user queries based on the output of a Bash command.
-Given the following user query and the raw output from a bash command, provide a concise, user-friendly interpretation of the results:
+You are a virtual assistant answering user queries based on the output of a Bash command.
+Review the user query and the raw output below, and provide a straightforward, user-friendly interpretation of the results.
 
 User Query: {query}
 
 Raw Command Output:
 {output}
 
-Please provide a clear and concise answer to the user's query based on this output. Explain any technical terms if necessary, and provide any relevant advice or context.
+Respond concisely to the user’s query based on the command output, using clear language. Explain any technical terms as needed, and provide relevant advice or context if it helps with understanding.
 
-Dont include any additional text like ``` or * or  comments in your response as it is meant to converted to speech.
+Do not include any extra characters or comments, as your response will be converted to speech.
+
+Dont make reponse too lenght, answer in 2-3 sentences.
 """

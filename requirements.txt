@@ -9,6 +9,17 @@ setuptools
 vosk
 python-dotenv
 pyttsx3
+groq
+faiss-cpu
+tenacity
+requests
+tqdm
+langchain-google-genai
+langchain-community
+langchain
+
+# sentence-transformers 
+# torch
 # gTTS
 # playsound
 # pydub 

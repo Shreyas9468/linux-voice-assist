@@ -11,22 +11,35 @@ import pyttsx3
 # import simpleaudio as sa
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QProgressBar, QApplication
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QColor, QPalette, QTextCursor
+from PyQt5.QtGui import QFont, QColor, QPalette, QTextCursor\
+
+from llms.gemini import GeminiService
+import numpy as np
+from llms.groq import GroqService
+
+from config import GEMINI_API_KEY
+
+# import google.generativeai as genai
+from voice_recognition_thread import VoiceRecognitionThread
+from config import GEMINI_API_KEY, GROQ_API_KEY
+
+from rag_service import RAGService
+
+from create_embeddings import EmbeddingProvider
 
 import google.generativeai as genai
-from voice_recognition_thread import VoiceRecognitionThread
-from config import GEMINI_API_KEY, PROMPT_TEMPLATE, OUTPUT_INTERPRETATION_PROMPT
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure the Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
+# genai.configure(api_key=GEMINI_API_KEY)
 
 class TTSThread(QThread):
     def __init__(self, text):
         super().__init__()
         self.text = text
+        
 
     def run(self):
         engine = pyttsx3.init()
@@ -36,7 +49,7 @@ class TTSThread(QThread):
 
 
 class VoiceAssistant(QMainWindow):
-    def __init__(self):
+    def __init__(self, llm_service='gemini', embeddings_dir='embeddings'):
         super().__init__()
         self.setWindowTitle("Smart Voice Assistant")
         self.setGeometry(100, 100, 800, 600)
@@ -92,6 +105,21 @@ class VoiceAssistant(QMainWindow):
         self.progress_bar.setTextVisible(False)
         main_layout.addWidget(self.progress_bar)
 
+        # Status constants
+        self.STATUS_IDLE = "Idle"
+        self.STATUS_LISTENING = "Listening for voice input..."
+        self.STATUS_PROCESSING = "Processing command..."
+        self.STATUS_GENERATING = "Generating script..."
+        self.STATUS_VALIDATING = "Validating script..."
+        self.STATUS_EXECUTING = "Executing command..."
+        self.STATUS_INTERPRETING = "Interpreting results..."
+        self.STATUS_SPEAKING = "Speaking response..."
+        self.STATUS_ERROR = "Error occurred"
+
+        # Initial status
+        self.current_status = self.STATUS_IDLE
+        self.status_label.setText(self.current_status)
+
         # Terminal
         self.terminal = QTextEdit()
         self.terminal.setReadOnly(True)
@@ -116,6 +144,28 @@ class VoiceAssistant(QMainWindow):
         self.voice_thread = VoiceRecognitionThread()
         self.voice_thread.status_update.connect(self.update_status)
         self.voice_thread.command_received.connect(self.process_command)
+
+        # Initialize the LLM service
+        if llm_service == 'gemini':
+            self.llm = GeminiService(GEMINI_API_KEY)
+        elif llm_service == 'groq':
+            self.llm = GroqService(GROQ_API_KEY)
+        else:
+            raise ValueError(f"Unsupported LLM service: {llm_service}")
+
+        self.llm.initialize()
+
+        try:
+            self.rag = RAGService(embeddings_dir)
+            self.rag.load_index()
+        except FileNotFoundError:
+            logging.error(
+                "Embeddings not found. Please run create_embeddings.py first with your context file."
+            )
+            raise
+
+        self.embedding_provider = EmbeddingProvider(llm_service)
+
 
         # Timer for progress bar
         self.timer = QTimer(self)
@@ -224,14 +274,14 @@ class VoiceAssistant(QMainWindow):
         finally:
             os.unlink(temp_file_path)
 
-    def interpret_output(self, original_query, command_output):
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = OUTPUT_INTERPRETATION_PROMPT.format(
-            query=original_query,
-            output=command_output
-        )
-        response = model.generate_content(prompt)
-        return response.text
+    # def interpret_output(self, original_query, command_output):
+    #     model = genai.GenerativeModel('gemini-1.5-flash')
+    #     prompt = OUTPUT_INTERPRETATION_PROMPT.format(
+    #         query=original_query,
+    #         output=command_output
+    #     )
+    #     response = model.generate_content(prompt)
+    #     return response.text
 
     def speak_text(self, text):
         self.tts_thread = TTSThread(text)
@@ -252,16 +302,13 @@ class VoiceAssistant(QMainWindow):
         self.update_status("Processing")
         self.terminal_print(f"Received command: {command}")
         
-        # First Gemini API call to convert command to bash script
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = PROMPT_TEMPLATE.format(query=command)
-        response = model.generate_content(prompt)
-        
         try:
-            jsondata = json.loads(response.text)
-            bash_script = jsondata.get('bash script')
-            description = jsondata.get('description')
-            
+            # Get context from RAG model
+            context = self.rag.get_relevant_context(command)
+            # self.terminal_print(f"Context: {context}")
+            # Generate bash script using the LLM service
+            bash_script, description = self.llm.generate_bash_script(command, context)
+
             logging.debug(f"Generated bash script: {bash_script}")
             logging.debug(f"Description: {description}")
             
@@ -277,8 +324,8 @@ class VoiceAssistant(QMainWindow):
                 
                 self.terminal_print(f"Raw output: {command_output}")
                 
-                # Second Gemini API call to interpret the output
-                interpreted_response = self.interpret_output(command, command_output)
+                # Interpret the output using the LLM service
+                interpreted_response = self.llm.interpret_output(command, command_output)
                 
                 self.terminal_print(f"Interpreted response: {interpreted_response}")
                 logging.info(f"Command executed and interpreted. Response: {interpreted_response}")
@@ -289,11 +336,6 @@ class VoiceAssistant(QMainWindow):
                 error_message = "Script execution aborted due to security concerns."
                 self.terminal_print(error_message)
                 self.speak_text(error_message)
-        except json.JSONDecodeError:
-            error_message = "Error: Invalid JSON response from Gemini API"
-            self.terminal_print(error_message)
-            self.speak_text(error_message)
-            logging.error(error_message)
         except Exception as e:
             error_message = f"Error executing command: {str(e)}"
             self.terminal_print(error_message)
@@ -301,4 +343,5 @@ class VoiceAssistant(QMainWindow):
             logging.error(error_message)
         
         self.update_status("Idle")
+
 
